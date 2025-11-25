@@ -135,6 +135,42 @@ word_t Simulator::readMemoryWord(addr_t addr, bool& error) {
     
     return val;
 }
+void Simulator::memory_access() {
+    // 1. 确定内存操作的地址 (Mem Addr)
+    // 大部分指令用 valE (算出来的地址)
+    // POPQ 和 RET 用 valA (栈指针 %rsp 的值)
+    addr_t mem_addr = 0;
+    if (icode == I_RMMOVQ || icode == I_PUSHQ || icode == I_CALL || icode == I_MRMOVQ) {
+        mem_addr = valE;
+    } else if (icode == I_POPQ || icode == I_RET) {
+        mem_addr = valA;
+    }
+
+    // 2. 确定是否读写 (Read/Write Control)
+    bool mem_read = (icode == I_MRMOVQ || icode == I_POPQ || icode == I_RET);
+    bool mem_write = (icode == I_RMMOVQ || icode == I_PUSHQ || icode == I_CALL);
+
+    // 3. 执行操作
+    bool error = false;
+
+    if (mem_read) {
+        // 读出的值存入流水线寄存器 valM
+        valM = readMemoryWord(mem_addr, error);
+    } 
+    
+    if (mem_write) {
+        // 写入的值通常是 valA (寄存器里的值)
+        // 只有 CALL 指令是把 valP (返回地址) 压栈
+        word_t data = (icode == I_CALL) ? valP : valA;
+        writeMemoryWord(mem_addr, data, error);
+    }
+
+    // 4. 错误处理
+    if (error) {
+        stat = STAT_ADR;
+    }
+}
+
 
 int main()
 {

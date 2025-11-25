@@ -15,6 +15,8 @@ public:
     // 写回：将 valE 或 valM 写回 reg
     void write_back();
 
+    void memory_access();
+
     void execute();
     // 处理小端序读写内存 (比如读8个字节拼成一个 int64)
     word_t readMemoryWord(addr_t addr, bool& error);//done
