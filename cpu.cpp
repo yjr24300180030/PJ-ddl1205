@@ -1,5 +1,38 @@
 #include "cpu.h"
 #include <fstream>
+bool Simulator::check_condition(int ifun, bool zf, bool sf, bool of) {
+
+    bool lt = sf ^ of; 
+
+    bool le = lt || zf;
+
+    bool gt = !le;      
+
+    bool ne = !zf;      
+
+    
+
+    switch (ifun) {
+
+        case F_NONE: return true; // 无条件 (rrmovq / jmp)
+
+        case F_LE:   return le;
+
+        case F_LT:   return lt;
+
+        case F_EQ:   return zf;
+
+        case F_NE:   return ne;
+
+        case F_GE:   return !lt;
+
+        case F_GT:   return gt;
+
+        default:     return false;
+
+    }
+
+}
 void Simulator::fetch() {
     // 初始化 fetch 阶段产生的信号
     bool imem_error = false; 
@@ -170,7 +203,75 @@ void Simulator::memory_access() {
         stat = STAT_ADR;
     }
 }
+void Simulator::execute() {
+    // 初始化
+    Cnd = false; 
 
+    // 类型转换
+    long long aluA = (long long)valA;
+    long long aluB = (long long)valB; 
+    
+    switch (icode) {
+        // A. 运算指令
+        case I_OPQ: {
+            if (ifun == F_ADD) valE = aluB + aluA;
+            else if (ifun == F_SUB) valE = aluB - aluA;
+            else if (ifun == F_AND) valE = aluB & aluA;
+            else if (ifun == F_XOR) valE = aluB ^ aluA;
+            
+            // 设置条件码 
+            cc.ZF = (valE == 0);
+            cc.SF = (valE < 0);
+            
+            if (ifun == F_ADD) {
+                bool pos_over = (aluA > 0 && aluB > 0 && valE < 0);
+                bool neg_over = (aluA < 0 && aluB < 0 && valE >= 0);
+                cc.OF = pos_over || neg_over;
+            } else if (ifun == F_SUB) {
+                bool pos_over = (aluB < 0 && aluA > 0 && valE >= 0); 
+                bool neg_over = (aluB > 0 && aluA < 0 && valE < 0); 
+                cc.OF = pos_over || neg_over;
+            } else {
+                cc.OF = false; 
+            }
+            break; 
+        }
+
+        // B. 传送指令 (关键修正点！)
+        case I_RRMOVQ: // 包含 rrmovq 和 cmovxx
+            valE = valA;
+            Cnd = check_condition(ifun, cc.ZF, cc.SF, cc.OF);
+            break;
+            
+        case I_IRMOVQ: 
+            valE = valC; 
+            break;
+            
+        // C. 内存/栈/跳转指令 (保持不变)
+        case I_RMMOVQ:
+        case I_MRMOVQ:
+            valE = valB + valC; 
+            break;
+            
+        case I_CALL:
+        case I_PUSHQ:
+            valE = valB - 8; 
+            break;
+            
+        case I_POPQ:
+        case I_RET:
+            valE = valB + 8;
+            break;
+
+        case I_JXX:
+            Cnd = check_condition(ifun, cc.ZF, cc.SF, cc.OF); 
+            break;
+            
+        case I_NOP:
+        case I_HALT:
+            break;
+    }
+}
 
 int main()
 {
