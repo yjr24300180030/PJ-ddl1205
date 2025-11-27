@@ -23,7 +23,9 @@ public:
 
     void writeMemoryWord(addr_t addr, word_t val, bool& error);
 
-    void run();
+    void run()；
+    
+    bool check_condition(int ifun, bool zf, bool sf, bool of);
 
 private:
     addr_t PC = 0;              // 程序计数器
@@ -44,5 +46,7 @@ private:
     word_t valA, valB;  // 译码阶段读出的寄存器值
     word_t valE;        // 执行阶段 ALU 计算结果
     word_t valM;        // 访存阶段读出的内存值
+    bool Cnd;             // 跳转/传送条件 (execute 计算, write_back 使用)
+
 
 };
