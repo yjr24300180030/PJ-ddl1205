@@ -1,5 +1,15 @@
 #include "cpu.h"
 #include <fstream>
+Simulator::Simulator() {
+    PC = 0;
+    stat = STAT_AOK;
+    icode = I_NOP;
+    ifun = 0;
+    // 清空寄存器和条件码
+    for (int i = 0; i < 15; ++i) reg[i] = 0;
+    cc.ZF = true; cc.SF = false; cc.OF = false;
+}
+
 bool Simulator::check_condition(int ifun, bool zf, bool sf, bool of) {
 
     bool lt = sf ^ of; 
@@ -10,26 +20,15 @@ bool Simulator::check_condition(int ifun, bool zf, bool sf, bool of) {
 
     bool ne = !zf;      
 
-    
-
     switch (ifun) {
-
-        case F_NONE: return true; // 无条件 (rrmovq / jmp)
-
-        case F_LE:   return le;
-
-        case F_LT:   return lt;
-
-        case F_EQ:   return zf;
-
-        case F_NE:   return ne;
-
-        case F_GE:   return !lt;
-
-        case F_GT:   return gt;
-
-        default:     return false;
-
+        case F_JMP: return true; // 0x0: 无条件 (jmp, rrmovq)
+        case F_JLE: return le;   // 0x1: <=
+        case F_JL:  return lt;   // 0x2: <
+        case F_JE:  return zf;   // 0x3: ==
+        case F_JNE: return ne;   // 0x4: !=
+        case F_JGE: return !lt;   // 0x5: >=
+        case F_JG:  return gt;   // 0x6: >
+        default:    return false;
     }
 
 }
@@ -40,7 +39,7 @@ void Simulator::fetch() {
     // ---------------------------------------------------------
     // 1. 读取第一个字节 (icode:ifun)
     // ---------------------------------------------------------
-    if (memory.find(PC) == memory.end() && PC >= MEM_MAX_SIZE) {
+    if (memory.find(PC) == memory.end() || PC >= MEM_MAX_SIZE) {
         imem_error = true;
     }
     
@@ -126,6 +125,26 @@ void Simulator::fetch() {
     }
 }
 
+void Simulator::pc_update() {
+    // 默认情况：PC 走向下一条指令
+    PC = valP;
+
+    switch (icode) {
+        case I_CALL:
+            PC = valC; // Call 跳转到立即数地址
+            break;
+        case I_JXX:
+            if (Cnd) PC = valC; // 条件满足才跳
+            break;
+        case I_RET:
+            PC = valM; // Ret 跳到栈里读出的地址
+            break;
+        default:
+            break;
+    }
+}
+
+
 void Simulator::loadProgram(const std::string& filename) {
     // 注意：这里 filename 应该是 Python 生成的那个 .input 文件
     std::ifstream fin(filename);
@@ -146,6 +165,41 @@ void Simulator::loadProgram(const std::string& filename) {
     
     fin.close();
 }
+void Simulator::decode() {
+    // ==========================================================
+    // 1. 读取 valA (源: srcA)
+    // ==========================================================
+    // ... (之前的逻辑确定 srcA) ...
+
+    if (srcA != REG_NONE) {
+        if (srcA >= 0 && srcA <= 14) { // 假设 reg 数组大小为 15
+            valA = reg[srcA];
+        } else {
+            valA = 0;
+            stat = STAT_INS; 
+        }
+    } else {
+        valA = 0;
+    }
+
+    // ==========================================================
+    // 2. 读取 valB (源: srcB)
+    // ==========================================================
+    // ... (之前的逻辑确定 srcB) ...
+
+    if (srcB != REG_NONE) {
+        // --- 增加：安全检查 ---
+        if (srcB >= 0 && srcB <= 14) {
+            valB = reg[srcB];
+        } else {
+            valB = 0;
+            // stat = STAT_INS;
+        }
+    } else {
+        valB = 0;
+    }
+}
+
 
 word_t Simulator::readMemoryWord(addr_t addr, bool& error) {
     // 1. 边界检查
@@ -168,6 +222,29 @@ word_t Simulator::readMemoryWord(addr_t addr, bool& error) {
     
     return val;
 }
+
+void Simulator::writeMemoryWord(addr_t addr, word_t val, bool& imem_error) {
+    // 1. 边界检查
+    // 如果起始地址越界，或者跨越了内存边界
+    if (addr + 8 > MEM_MAX_SIZE) {
+        imem_error = true;
+        return;
+    }
+
+    imem_error = false;
+
+    // 2. 小端序写入 (Little Endian Splitting)
+    // val 的低8位 -> 存入 addr
+    // val 的高8位 -> 存入 addr + 7
+    // 使用无符号转换防止符号位干扰右移
+    uint64_t uval = (uint64_t)val;
+
+    for (int i = 0; i < 8; ++i) {
+        byte_t byte_val = (uval >> (i * 8)) & 0xFF;
+        memory[addr + i] = byte_val;
+    }
+}
+
 void Simulator::memory_access() {
     // 1. 确定内存操作的地址 (Mem Addr)
     // 大部分指令用 valE (算出来的地址)
@@ -206,6 +283,7 @@ void Simulator::memory_access() {
 void Simulator::execute() {
     // 初始化
     Cnd = false; 
+    valE = 0;
 
     // 类型转换
     long long aluA = (long long)valA;
@@ -221,7 +299,7 @@ void Simulator::execute() {
             
             // 设置条件码 
             cc.ZF = (valE == 0);
-            cc.SF = (valE < 0);
+            cc.SF = ((int64_t)valE < 0);
             
             if (ifun == F_ADD) {
                 bool pos_over = (aluA > 0 && aluB > 0 && valE < 0);
@@ -270,6 +348,58 @@ void Simulator::execute() {
         case I_NOP:
         case I_HALT:
             break;
+    }
+}
+void Simulator::write_back() {
+    // ==========================================================
+    // 1. 确定 dstE 
+    //    valE 来自 ALU 计算 (add, sub...) 或 栈指针计算 (rsp +/- 8)
+    // ==========================================================
+    byte_t dstE = REG_NONE;
+
+    // 情况 A: 条件传送 (cmovXX) / 普通传送 (rrmovq)
+    if (icode == I_RRMOVQ) {
+        if (Cnd) dstE = rB;
+    } 
+    // 情况 B: 立即数加载 (irmovq) 或 算术运算 (OPq)
+    else if (icode == I_IRMOVQ || icode == I_OPQ) {
+        dstE = rB;
+    }
+    // 情况 C: 栈操作 (push, pop, call, ret)
+    // 这些指令全都会修改 %rsp，结果都在 valE 里
+    else if (icode == I_PUSHQ || icode == I_POPQ || icode == I_CALL || icode == I_RET) {
+        dstE = REG_RSP; 
+    }
+
+    // ==========================================================
+    // 2. 确定 dstM
+    //    valM 来自内存读取 (mrmovq, pop, ret)
+    // ==========================================================
+    byte_t dstM = REG_NONE;
+
+    // 情况 A: 读内存 (mrmovq)
+    if (icode == I_MRMOVQ) {
+        dstM = rA; 
+    }
+    // 情况 B: 弹栈 (popq)
+    // popq rA  ->  valM = Memory[%rsp]  -> 写入 rA
+    else if (icode == I_POPQ) {
+        dstM = rA; 
+    }
+
+    // ==========================================================
+    // 3. 执行写入 (Update Register File)
+    // ==========================================================
+    
+    // 先写 valE
+    if (dstE != REG_NONE) {
+        reg[dstE] = valE;
+    }
+
+    // 后写 valM
+    
+    if (dstM != REG_NONE) {
+        reg[dstM] = valM;
     }
 }
 

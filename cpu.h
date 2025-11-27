@@ -8,24 +8,24 @@ public:
 
     int fetch();//done
 
-    int decode();
+    int decode();//done
 
-    void pc_update();
+    void pc_update();//done
 
     // 写回：将 valE 或 valM 写回 reg
-    void write_back();
+    void write_back();//done
 
-    void memory_access();
+    void memory_access();//done
 
     void execute();
     // 处理小端序读写内存 (比如读8个字节拼成一个 int64)
     word_t readMemoryWord(addr_t addr, bool& error);//done
 
-    void writeMemoryWord(addr_t addr, word_t val, bool& error);
+    void writeMemoryWord(addr_t addr, word_t val, bool& error);//done
 
-    void run()；
+    void run();
     
-    bool check_condition(int ifun, bool zf, bool sf, bool of);
+    bool check_condition(int ifun, bool zf, bool sf, bool of);//done
 
 private:
     addr_t PC = 0;              // 程序计数器
