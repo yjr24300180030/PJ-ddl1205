@@ -1,0 +1,49 @@
+from typing import Dict, List
+
+MEM_MAX_SIZE: int=0x20000
+
+def parse_yo_stream(stream: List[str])->Dict[int, int]:
+    """
+    从行序列中解析.yo程序,参数stream:List[str]从.yo文件读取的行列表,
+    返回值:Dict[int, int]从内存地址到字节值的映射。显式出现在.yo文件中
+    的地址被填充,其他地址默认存储0
+    """
+    memory: Dict[int, int]={}
+    for line in stream:
+        # 去除末尾的换行符和首尾空白字符,跳过空行
+        s=line.rstrip()
+        if not s or ":" not in s:
+            continue
+        # 提取地址和竖线前的代码部分
+        left, *_=s.split('|', 1)
+        left=left.strip()
+        if not left:
+            continue
+        # 分离地址和十六进制字符串
+        try:
+            addr_str, hex_str=left.split(':', 1)
+        except ValueError:
+            continue
+        addr_str=addr_str.strip()
+        hex_str=hex_str.strip().replace(' ', '')
+        if not hex_str
+            continue
+        try:
+            base_addr=int(addr_str, 16)
+        except ValueError:
+        # 跳过格式错误的地址
+            continue
+        if base_addr>=MEM_MAX_SIZE:
+            continue
+        # 将十六进制字符串转换为字节,如果hex_str长度为奇数,在右侧填充
+        if len(hex_str)%2==1:
+            hex_str=hex_str+'0'
+        for i in range(0, len(hex_str), 2):
+            try:
+                byte_val=int(hex_str[i:i+2], 16)
+            except ValueError:
+                continue
+            addr=base_addr+(i//2)
+            if addr<MEM_MAX_SIZE:
+                memory[addr]=byte_val&0xFF
+    return memory
