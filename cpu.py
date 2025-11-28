@@ -414,4 +414,30 @@ class Simulator:
             if not log or log[-1]["STAT"]==STAT_AOK:
                 log.append(self._snapshot_state())
         return log
-            
+    
+    def _snapshot_state(self)->Dict[str, object]:
+        reg_map={name: twos_complement_to_signed(self.reg[i]&0xFFFFFFFFFFFFFFFF) for i, name in enumerate(REG_NAMES)}
+        mem_map={str(addr): val for addr, val in self.mem_groups.items()}
+        cc_map={
+            "OF": self.of,
+            "SF": self.sf,
+            "ZF": self.zf,
+        }
+        state={
+            "PC":self.pc&0xFFFFFFFFFFFFFFFF,
+            "REG":reg_map,
+            "CC":cc_map,
+            "STAT":self.stat,
+            "MEM":mem_snapshot,
+        }
+        return state
+
+def main()->None:
+    program_lines=sys.stdin.read().splitlines()
+    memory=parse_yo_stream(program_lines)
+    sim=Simulator(memory)
+    log=sim.run()
+    json.dump(log, sys.stdout, indent=4)
+    
+if __name__=="__main__":
+        main()
