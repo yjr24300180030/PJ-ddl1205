@@ -1,37 +1,22 @@
 #include "cpu.h"
 #include <fstream>
 bool Simulator::check_condition(int ifun, bool zf, bool sf, bool of) {
-
-    bool lt = sf ^ of; 
-
-    bool le = lt || zf;
-
-    bool gt = !le;      
-
-    bool ne = !zf;      
-
     
+    bool lt = sf ^ of;   // Less Than (SF^OF)
+    bool le = lt || zf;  // Less Than or Equal ((SF^OF)|ZF)
+    bool gt = !le;       // Greater Than
+    bool ne = !zf;       // Not Equal
 
     switch (ifun) {
-
-        case F_NONE: return true; // 无条件 (rrmovq / jmp)
-
-        case F_LE:   return le;
-
-        case F_LT:   return lt;
-
-        case F_EQ:   return zf;
-
-        case F_NE:   return ne;
-
-        case F_GE:   return !lt;
-
-        case F_GT:   return gt;
-
+        case F_JMP:  return true; // 0x0: 无条件 (jmp / rrmovq)
+        case F_JLE:  return le;   // 0x1: <=
+        case F_JL:   return lt;   // 0x2: <
+        case F_JE:   return zf;   // 0x3: ==
+        case F_JNE:  return ne;   // 0x4: !=
+        case F_JGE:  return !lt;  // 0x5: >=
+        case F_JG:   return gt;   // 0x6: >
         default:     return false;
-
     }
-
 }
 void Simulator::fetch() {
     // 初始化 fetch 阶段产生的信号
@@ -207,47 +192,48 @@ void Simulator::execute() {
     // 初始化
     Cnd = false; 
 
-    // 类型转换
+    // 类型转换：注意，我们使用 long long 进行算术计算
     long long aluA = (long long)valA;
     long long aluB = (long long)valB; 
     
     switch (icode) {
-        // A. 运算指令
+        // A. 运算指令 (I_OPQ)
         case I_OPQ: {
             if (ifun == F_ADD) valE = aluB + aluA;
             else if (ifun == F_SUB) valE = aluB - aluA;
             else if (ifun == F_AND) valE = aluB & aluA;
             else if (ifun == F_XOR) valE = aluB ^ aluA;
             
-            // 设置条件码 
-            cc.ZF = (valE == 0);
-            cc.SF = (valE < 0);
+            // 设置条件码 (注意：这里全部修正为小写 cc.zf, cc.sf, cc.of)
+            cc.zf = (valE == 0);
+            cc.sf = (valE < 0);
             
             if (ifun == F_ADD) {
                 bool pos_over = (aluA > 0 && aluB > 0 && valE < 0);
                 bool neg_over = (aluA < 0 && aluB < 0 && valE >= 0);
-                cc.OF = pos_over || neg_over;
+                cc.of = pos_over || neg_over;
             } else if (ifun == F_SUB) {
                 bool pos_over = (aluB < 0 && aluA > 0 && valE >= 0); 
                 bool neg_over = (aluB > 0 && aluA < 0 && valE < 0); 
-                cc.OF = pos_over || neg_over;
+                cc.of = pos_over || neg_over;
             } else {
-                cc.OF = false; 
+                cc.of = false; 
             }
             break; 
         }
 
-        // B. 传送指令 (关键修正点！)
+        // B. 传送指令 (I_RRMOVQ/I_IRMOVQ)
         case I_RRMOVQ: // 包含 rrmovq 和 cmovxx
             valE = valA;
-            Cnd = check_condition(ifun, cc.ZF, cc.SF, cc.OF);
+            // 关键修正：计算 Cnd，决定 WriteBack 是否写入
+            Cnd = check_condition(ifun, cc.zf, cc.sf, cc.of);
             break;
             
         case I_IRMOVQ: 
             valE = valC; 
             break;
             
-        // C. 内存/栈/跳转指令 (保持不变)
+        // C. 内存/栈/跳转指令 
         case I_RMMOVQ:
         case I_MRMOVQ:
             valE = valB + valC; 
@@ -263,8 +249,9 @@ void Simulator::execute() {
             valE = valB + 8;
             break;
 
-        case I_JXX:
-            Cnd = check_condition(ifun, cc.ZF, cc.SF, cc.OF); 
+        case I_JXX: // 跳转指令 (最后一个板块)
+            // Cnd 决定了 PC update 是否跳转到 valC
+            Cnd = check_condition(ifun, cc.zf, cc.sf, cc.of); 
             break;
             
         case I_NOP:
