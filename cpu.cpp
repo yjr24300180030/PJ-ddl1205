@@ -39,12 +39,6 @@ void Simulator::fetch() {
     bool imem_error = false; 
 
     // 1. 读取第一个字节
-    if (memory.find(PC) == memory.end() && PC < MEM_MAX_SIZE) {
-        // 如果map里没找到，但地址在范围内，视为0 (NOP/Halt)，或者报错
-        // 通常未初始化的内存读作0
-        // 但如果 PC 超过 MEM_MAX_SIZE，则是错误
-    }
-    
     if (PC >= MEM_MAX_SIZE) {
         imem_error = true;
     }
@@ -264,7 +258,6 @@ void Simulator::write_back() {
 }
 
 void Simulator::pc_update() {
-    // 修复：如果状态不是 AOK (比如遇到了 HALT 或 错误)，不要移动 PC
     if (stat != STAT_AOK) {
         return;
     }
@@ -280,7 +273,7 @@ void Simulator::pc_update() {
 
 
 word_t Simulator::readMemoryWord(addr_t addr, bool& error) {
-    if (addr >= MEM_MAX_SIZE || addr + 8 > MEM_MAX_SIZE) { 
+    if (addr+8 >= MEM_MAX_SIZE|| addr >= MEM_MAX_SIZE) { 
     // 注意：如果是负数地址(巨大正数)，addr >= MEM_MAX_SIZE 直接就能拦住
     error = true;
     return 0;
@@ -299,7 +292,7 @@ word_t Simulator::readMemoryWord(addr_t addr, bool& error) {
 }
 
 void Simulator::writeMemoryWord(addr_t addr, word_t val, bool& error) {
-    if (addr >= MEM_MAX_SIZE || addr + 8 > MEM_MAX_SIZE) {
+    if (addr+8 >= MEM_MAX_SIZE|| addr >= MEM_MAX_SIZE ) {
     error = true;
     return;
     }
@@ -318,7 +311,6 @@ void Simulator::loadProgram(const std::string& filename) {
     }
     addr_t addr;
     int val;
-    // 配合parser: 十进制地址 + 十六进制数值
     while (fin >> std::dec >> addr >> std::hex >> val) {
         if (addr < MEM_MAX_SIZE) {
             memory[addr] = (byte_t)val;
@@ -338,7 +330,6 @@ void Simulator::dumpJson() {
     std::cout << "},"; 
 
     // 2. MEM 
-    // 【关键修改】这里是把散乱的字节拼成 Word
     std::cout << "\"MEM\":{";
     std::map<addr_t, uint64_t> word_mem;
     for (auto const& [addr, byte_val] : memory) {
@@ -350,8 +341,6 @@ void Simulator::dumpJson() {
     bool first = true;
     for (auto const& [addr, val] : word_mem) {
         if (!first) std::cout << ",";
-        // 【核心修复】必须强转为 (int64_t) 才能打印出负数！
-        // 之前是 val (uint64_t)，所以打印出了 huge positive number
         std::cout << "\"" << std::dec << addr << "\":" << (int64_t)val;
         first = false;
     }
